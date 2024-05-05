@@ -1,41 +1,55 @@
 from flask import Flask, request, jsonify
 import pickle
-import nltk
+from joblib import load
+
 from sklearn.feature_extraction.text import CountVectorizer
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import PorterStemmer
-import string
+
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 app = Flask(__name__)
 
 # Load your trained model
 with open('model.pkl', 'rb') as f:
     model = pickle.load(f)
+# Load your fitted TfidfVectorizer
 
-# Load your CountVectorizer
 with open('vectorizer.pkl', 'rb') as f:
     vectorizer = pickle.load(f)
 
-def preprocess(message):
-    # Convert to lowercase
-    message = message.lower()
 
-    # Remove punctuation
-    message = message.translate(str.maketrans('', '', string.punctuation))
-
-    # Tokenize into words
-    words = word_tokenize(message)
-
-    # Remove stopwords
+def preprocess_text(text):
+    # Remove newline and carriage return characters
+    text = text.replace('\n', '').replace('\r', '')
+    
+    # Extract words and convert to lowercase
+    words = re.findall(r'\b[A-Za-z]+\b', text)
+    words = [word.lower() for word in words]
+    
     stop_words = set(stopwords.words('english'))
-    words = [w for w in words if not w in stop_words]
-
-    # Stem words
+    filtered_words = [word for word in words if word not in stop_words]
     stemmer = PorterStemmer()
-    words = [stemmer.stem(w) for w in words]
+    words = [stemmer.stem(word) for word in words]
+    # Join words back into a single string
+    processed_text = ' '.join(words)
+    
+    return processed_text
 
-    return ' '.join(words)
+def predict_email(email_text, model, cv):
+    # Preprocess the input email text
+    processed_text = preprocess_text(email_text)
+    
+    # Vectorize the preprocessed text using CountVectorizer
+    text_vector = cv.transform([processed_text])
+    
+    # Use the model to predict the label (spam or ham)
+    prediction = model.predict(text_vector)
+    
+    # Return the predicted label
+    return prediction[0]
 
 @app.route('/', methods=['GET'])
 def home():
@@ -44,27 +58,15 @@ def home():
 @app.route('/detect', methods=['POST'])
 def detect_spam():
     data = request.get_json()
-    email = data['email']
-    name = data['name']
-    message = data['message']
+    emailMessage = data['emailMessage']
 
-    # Preprocess the message
-    preprocessed_message = preprocess(message)
-
-    # Transform the message
-    transformed_message = vectorizer.transform([preprocessed_message])
-
-    # Use the model to predict
-    prediction = model.predict(transformed_message)
-
+    predicted_label = predict_email(emailMessage, model, vectorizer)
+    print('label: ' ,predicted_label)
     # Return the result
-    if prediction[0] == 1:
-        return jsonify({'result': 'spam'})
+    if  predicted_label == 'spam':
+        return jsonify({'spamValue': 'spam'})
     else:
-        return jsonify({'result': 'not spam'})
+        return jsonify({'spamValue': 'not spam'})
     
-    
-
-
 if __name__ == "__main__":
     app.run(debug=True)
